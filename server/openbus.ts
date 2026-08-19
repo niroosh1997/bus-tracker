@@ -7,6 +7,8 @@
 // (Ramat Gan -> Safed) and a valid line_ref (line 56, Tel Aviv -> Yehud).
 // Resolving one to the other is exactly what this module is for.
 
+import type { LineRoute, LineSearchResult } from '../shared/types.ts';
+
 const API = 'https://open-bus-stride-api.hasadna.org.il';
 
 // The upstream feed sometimes has no rows for today (its import runs a day or
@@ -14,15 +16,28 @@ const API = 'https://open-bus-stride-api.hasadna.org.il';
 // search working instead of showing an empty screen.
 const MAX_DAYS_BACK = 7;
 
-function isoDate(daysAgo) {
+interface GtfsRoute {
+  line_ref: number;
+  route_short_name: string;
+  route_long_name: string | null;
+  route_direction: string | null;
+  route_alternative: string | null;
+  agency_name: string | null;
+}
+
+function isoDate(daysAgo: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - daysAgo);
   return d.toISOString().slice(0, 10);
 }
 
 /** Split "origin<->destination-city-<dir><alt>" into its two ends. */
-export function splitRouteName(longName, direction, alternative) {
-  const name = longName || '';
+export function splitRouteName(
+  longName: string | null | undefined,
+  direction: string | null | undefined,
+  alternative: string | null | undefined,
+): { start: string | null; end: string | null } {
+  const name = longName ?? '';
   if (!name.includes('<->')) return { start: name.trim() || null, end: null };
 
   const [start, ...rest] = name.split('<->');
@@ -36,7 +51,7 @@ export function splitRouteName(longName, direction, alternative) {
   return { start: start.trim() || null, end: end.trim() || null };
 }
 
-async function fetchRoutesForDate(number, date) {
+async function fetchRoutesForDate(number: string, date: string): Promise<GtfsRoute[]> {
   const url =
     `${API}/gtfs_routes/list?date_from=${date}&date_to=${date}` +
     `&route_short_name=${encodeURIComponent(number)}&limit=300`;
@@ -44,25 +59,23 @@ async function fetchRoutesForDate(number, date) {
   const res = await fetch(url, { headers: { accept: 'application/json' } });
   if (!res.ok) throw new Error(`Open Bus returned ${res.status}`);
 
-  const body = await res.json();
+  const body: unknown = await res.json();
   // The API reports its own errors as a 200 with an object body.
   if (!Array.isArray(body)) {
-    throw new Error(`Open Bus error: ${body?.message ?? 'unexpected response'}`);
+    const message = (body as { message?: string })?.message ?? 'unexpected response';
+    throw new Error(`Open Bus error: ${message}`);
   }
-  return body;
+  return body as GtfsRoute[];
 }
 
-/**
- * Every route sharing a line number, newest schedule day available.
- * Returns { number, date, routes: [{ lineRef, number, company, start, end, direction }] }
- */
-export async function findLine(number) {
+/** Every route sharing a line number, from the newest schedule day available. */
+export async function findLine(number: string): Promise<LineSearchResult> {
   for (let daysAgo = 0; daysAgo <= MAX_DAYS_BACK; daysAgo++) {
     const date = isoDate(daysAgo);
     const rows = await fetchRoutesForDate(number, date);
     if (rows.length === 0) continue;
 
-    const routes = rows.map((r) => {
+    const routes: LineRoute[] = rows.map((r) => {
       const { start, end } = splitRouteName(
         r.route_long_name,
         r.route_direction,

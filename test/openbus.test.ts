@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitRouteName } from '../src/openbus.js';
+import { splitRouteName } from '../server/openbus.ts';
 
 test('splits a route name into start and end', () => {
   const { start, end } = splitRouteName(
@@ -13,11 +13,8 @@ test('splits a route name into start and end', () => {
 });
 
 test('strips the direction suffix only when it is really there', () => {
-  const { end } = splitRouteName('A<->B-3#', '3', '#');
-  assert.equal(end, 'B');
-
-  const kept = splitRouteName('A<->B-9#', '3', '#');
-  assert.equal(kept.end, 'B-9#');
+  assert.equal(splitRouteName('A<->B-3#', '3', '#').end, 'B');
+  assert.equal(splitRouteName('A<->B-9#', '3', '#').end, 'B-9#');
 });
 
 test('handles a name with no separator', () => {
